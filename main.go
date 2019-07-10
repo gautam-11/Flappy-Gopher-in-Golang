@@ -1,9 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/veandco/go-sdl2/sdl"
@@ -35,7 +35,7 @@ func run() error {
 	}
 	defer w.Destroy()
 
-	if err := drawTitle(r); err != nil {
+	if err := drawTitle(r, "Flappy Gopher"); err != nil {
 		return fmt.Errorf("Could not draw title: %v", err)
 	}
 
@@ -46,15 +46,21 @@ func run() error {
 		return fmt.Errorf("could not create scene: %v", err)
 	}
 	defer s.destroy()
-	ctx, cancel := context.WithCancel(context.Background())
+	events := make(chan sdl.Event)
+	errc := s.run(events, r)
 
-	time.AfterFunc(5*time.Second, cancel)
-
-	return <-s.run(ctx, r)
+	runtime.LockOSThread()
+	for {
+		select {
+		case events <- sdl.WaitEvent():
+		case err := <-errc:
+			return err
+		}
+	}
 
 }
 
-func drawTitle(r *sdl.Renderer) error {
+func drawTitle(r *sdl.Renderer, text string) error {
 	r.Clear()
 	f, err := ttf.OpenFont("res/fonts/Flappy.ttf", 20)
 	if err != nil {
@@ -62,7 +68,7 @@ func drawTitle(r *sdl.Renderer) error {
 	}
 	defer f.Close()
 	c := sdl.Color{R: 255, G: 100, B: 0, A: 255}
-	s, err := f.RenderUTF8Solid("Flappy Gopher", c)
+	s, err := f.RenderUTF8Solid(text, c)
 	if err != nil {
 		return fmt.Errorf("could not render title: %v", err)
 	}

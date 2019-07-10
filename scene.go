@@ -1,8 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"time"
 
 	img "github.com/veandco/go-sdl2/img"
@@ -12,6 +12,7 @@ import (
 type scene struct {
 	bird *bird
 	bg   *sdl.Texture
+	pipe *pipe
 }
 
 func newScene(r *sdl.Renderer) (*scene, error) {
@@ -25,20 +26,34 @@ func newScene(r *sdl.Renderer) (*scene, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &scene{bg: bg, bird: b}, nil
+	p, err := newPipe(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &scene{bg: bg, bird: b, pipe: p}, nil
 }
 
-func (s *scene) run(ctx context.Context, r *sdl.Renderer) <-chan error {
+func (s *scene) run(events <-chan sdl.Event, r *sdl.Renderer) <-chan error {
 	errc := make(chan error)
 
 	go func() {
 		defer close(errc)
-		for range time.Tick(10 * time.Millisecond) {
+		tick := time.Tick(10 * time.Millisecond)
+		for {
 
 			select {
-			case <-ctx.Done():
-				return
-			default:
+			case e := <-events:
+				if done := s.handleEvent(e); done {
+					return
+				}
+			case <-tick:
+				s.update()
+				if s.bird.isDead() {
+					drawTitle(r, "Game Over")
+					time.Sleep(time.Second)
+					s.restart()
+				}
 				if err := s.paint(r); err != nil {
 					errc <- err
 				}
@@ -46,6 +61,34 @@ func (s *scene) run(ctx context.Context, r *sdl.Renderer) <-chan error {
 		}
 	}()
 	return errc
+}
+
+func (s *scene) handleEvent(event sdl.Event) bool {
+	switch event.(type) {
+
+	case *sdl.QuitEvent:
+		return true
+
+	case *sdl.MouseButtonEvent:
+		s.bird.jump()
+	case *sdl.MouseMotionEvent, *sdl.WindowEvent, *sdl.TouchFingerEvent:
+	default:
+		log.Printf("unknown event %T", event)
+		return false
+	}
+	return false
+}
+
+func (s *scene) update() {
+	s.bird.update()
+	s.pipe.update()
+	s.bird.touch(s.pipe)
+}
+
+func (s *scene) restart() {
+	s.bird.restart()
+	s.pipe.restart()
+
 }
 func (s *scene) paint(r *sdl.Renderer) error {
 	r.Clear()
@@ -55,6 +98,9 @@ func (s *scene) paint(r *sdl.Renderer) error {
 	if err := s.bird.paint(r); err != nil {
 		return err
 	}
+	if err := s.pipe.paint(r); err != nil {
+		return err
+	}
 	r.Present()
 	return nil
 }
@@ -62,4 +108,5 @@ func (s *scene) paint(r *sdl.Renderer) error {
 func (s *scene) destroy() {
 	s.bg.Destroy()
 	s.bird.destroy()
+	s.pipe.destroy()
 }
